@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Giám Khảo Văn Nghệ AI</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 p-3 min-h-screen">
+  <div class="max-w-xl mx-auto space-y-3">
+    <div class="bg-indigo-700 text-white p-3 rounded-xl flex justify-between items-center shadow">
+      <div>
+        <h1 class="text-base font-bold">Giám Khảo Văn Nghệ AI</h1>
+        <p class="text-xs text-indigo-200">Chấm tức thì & Đồng bộ Google Sheets</p>
+      </div>
+      <span id="status" class="text-xs bg-slate-500 px-3 py-1 rounded-full font-bold">Chưa bật camera</span>
+    </div>
+
+    <div class="bg-white p-3 rounded-xl shadow border space-y-3">
+      <div class="relative aspect-video bg-black rounded-lg overflow-hidden flex items-center justify-center">
+        <video id="video" autoplay playsinline muted class="w-full h-full object-cover"></video>
+        <canvas id="canvas" class="hidden"></canvas>
+        <div id="recordingTag" class="hidden absolute top-3 left-3 bg-red-600 text-white text-xs px-3 py-1 rounded-full font-bold animate-pulse">
+          ● ĐANG CHẤM... (<span id="frameCount">0</span> ảnh)
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <input type="text" id="team" placeholder="Đội / Lớp (VD: 11A1)" class="border p-2 rounded text-sm outline-none focus:border-indigo-500">
+        <input type="text" id="perf" placeholder="Tên tiết mục" class="border p-2 rounded text-sm outline-none focus:border-indigo-500">
+        <select id="genre" class="border p-2 rounded text-sm outline-none">
+          <option value="Múa">Múa</option>
+          <option value="Hát">Hát</option>
+          <option value="Nhảy hiện đại">Nhảy hiện đại</option>
+          <option value="Kịch / Hoạt cảnh">Kịch / Hoạt cảnh</option>
+        </select>
+      </div>
+
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-2 pt-1">
+        <button id="btnCam" class="bg-slate-800 text-white font-semibold py-2.5 rounded-lg text-xs">1. Bật Camera</button>
+        <button id="btnFlip" class="bg-amber-600 text-white font-semibold py-2.5 rounded-lg text-xs">🔄 Đổi Camera</button>
+        <button id="btnRec" disabled class="bg-red-600 disabled:bg-slate-300 text-white font-semibold py-2.5 rounded-lg text-xs">2. Bắt đầu diễn</button>
+        <button id="btnJudge" disabled class="bg-indigo-600 disabled:bg-slate-300 text-white font-semibold py-2.5 rounded-lg text-xs">3. Dừng & Chấm</button>
+      </div>
+    </div>
+
+    <!-- Kết quả chấm -->
+    <div id="resBox" class="hidden bg-white p-4 rounded-xl shadow border space-y-3">
+      <div class="flex justify-between items-center border-b pb-2">
+        <span class="font-bold text-slate-700">Điểm đánh giá:</span>
+        <span id="total" class="text-3xl font-extrabold text-red-600">--/100</span>
+      </div>
+      <div>
+        <p class="text-xs font-semibold text-slate-500 uppercase">Nhận xét:</p>
+        <p id="feedback" class="text-sm text-slate-800 bg-slate-50 p-2.5 rounded border italic"></p>
+      </div>
+      <div class="flex justify-between items-center pt-1">
+        <span class="text-xs text-emerald-600 font-semibold">✓ Đã lưu vào Sheet</span>
+        <button id="btnNext" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-1.5 px-3 rounded shadow">
+          ➔ Chấm tiết mục tiếp theo
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycby2A6PAPMkIzJ13jFAEu0WSXbBBun60W5d5fv6Ng-96LkQEpUv88r8gvtk6B5Dy_nBN/exec";
+
+    let stream = null;
+    let captureInterval = null;
+    let capturedFrames = [];
+    let currentFacingMode = "environment";
+
+    const video = document.getElementById('video');
+    const canvas = document.getElementById('canvas');
+    const status = document.getElementById('status');
+    const recordingTag = document.getElementById('recordingTag');
+    const frameCount = document.getElementById('frameCount');
+    const btnCam = document.getElementById('btnCam');
+    const btnFlip = document.getElementById('btnFlip');
+    const btnRec = document.getElementById('btnRec');
+    const btnJudge = document.getElementById('btnJudge');
+    const btnNext = document.getElementById('btnNext');
+
+    async function startCamera() {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: currentFacingMode, width: 480, height: 360 },
+          audio: false
+        });
+        video.srcObject = stream;
+        btnRec.disabled = false;
+        btnCam.disabled = true;
+        status.textContent = "Camera sẵn sàng";
+        status.className = "text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-bold";
+      } catch (e) {
+        alert("Lỗi mở camera: " + e.message);
+      }
+    }
+
+    function captureCurrentFrame() {
+      const ctx = canvas.getContext('2d');
+      canvas.width = 240;
+      canvas.height = 180;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const base64 = canvas.toDataURL('image/jpeg', 0.4).split(',')[1];
+      capturedFrames.push(base64);
+      frameCount.textContent = capturedFrames.length;
+    }
+
+    btnCam.onclick = () => startCamera();
+    btnFlip.onclick = () => {
+      currentFacingMode = (currentFacingMode === "environment") ? "user" : "environment";
+      startCamera();
+    };
+
+    btnRec.onclick = () => {
+      const team = document.getElementById('team').value.trim();
+      const perf = document.getElementById('perf').value.trim();
+      if (!team || !perf) return alert("Vui lòng điền Đội/Lớp và Tên tiết mục!");
+
+      capturedFrames = [];
+      frameCount.textContent = "0";
+      recordingTag.classList.remove('hidden');
+      btnRec.disabled = true;
+      btnJudge.disabled = false;
+      status.textContent = "Đang theo dõi diễn...";
+      status.className = "text-xs bg-red-600 text-white px-3 py-1 rounded-full font-bold";
+
+      captureCurrentFrame();
+      captureInterval = setInterval(() => {
+        if (capturedFrames.length < 3) {
+          captureCurrentFrame();
+        }
+      }, 2000);
+    };
+
+    btnJudge.onclick = async () => {
+      clearInterval(captureInterval);
+      if (capturedFrames.length === 0) captureCurrentFrame();
+
+      btnJudge.disabled = true;
+      recordingTag.classList.add('hidden');
+      status.textContent = "Đang tổng hợp điểm...";
+      status.className = "text-xs bg-amber-500 text-white px-3 py-1 rounded-full font-bold";
+
+      try {
+        const payload = {
+          team: document.getElementById('team').value,
+          perf: document.getElementById('perf').value,
+          genre: document.getElementById('genre').value,
+          images: capturedFrames
+        };
+
+        const res = await fetch(SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+
+        const data = await res.json();
+        document.getElementById('resBox').classList.remove('hidden');
+        document.getElementById('total').textContent = (data.total || "--") + "/100";
+        document.getElementById('feedback').textContent = data.feedback || "Tiết mục hoàn thành xuất sắc.";
+
+        status.textContent = "Đã có điểm";
+        status.className = "text-xs bg-emerald-600 text-white px-3 py-1 rounded-full font-bold";
+      } catch (err) {
+        alert("Lỗi: " + err.message);
+        status.textContent = "Lỗi";
+      } finally {
+        btnRec.disabled = false;
+      }
+    };
+
+    // Nút sẵn sàng chấm cho tiết mục kế tiếp
+    btnNext.onclick = () => {
+      document.getElementById('perf').value = "";
+      document.getElementById('team').value = "";
+      document.getElementById('resBox').classList.add('hidden');
+      btnRec.disabled = false;
+      btnJudge.disabled = true;
+      status.textContent = "Sẵn sàng cho đội tiếp theo";
+      status.className = "text-xs bg-emerald-500 text-white px-3 py-1 rounded-full font-bold";
+      document.getElementById('team').focus();
+    };
+  </script>
+</body>
+</html>
